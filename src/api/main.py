@@ -5,6 +5,7 @@ import io
 import platform
 import re
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
@@ -149,20 +150,22 @@ def _open_camera_capture():
 
 
 def _draw_face_label(frame: np.ndarray, bbox: list[int], label: str, confidence: float, known: bool) -> None:
-    color = (255, 80, 0) if known else (0, 80, 255)
+    color = (0, 220, 80) if known else (0, 80, 220)
     x1, y1, x2, y2 = bbox
-    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
 
     text = f"{label} {confidence:.0%}" if known else "unknown"
-    scale = 0.65
+    scale = 0.7
     thickness = 2
     (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
-    label_y = max(0, y1 - th - 8)
-    cv2.rectangle(frame, (x1, label_y), (x1 + tw + 8, y1), color, -1)
+
+    label_bg_padding = 6
+    label_y = max(0, y1 - th - label_bg_padding * 2)
+    cv2.rectangle(frame, (x1 - label_bg_padding, label_y), (x1 + tw + label_bg_padding, y1), color, -1)
     cv2.putText(
         frame,
         text,
-        (x1 + 4, max(th + 2, y1 - 5)),
+        (x1, y1 - label_bg_padding),
         cv2.FONT_HERSHEY_SIMPLEX,
         scale,
         (255, 255, 255),
@@ -185,6 +188,73 @@ def _draw_camera_header(frame: np.ndarray) -> None:
     )
 
 
+def _draw_detection_history(frame: np.ndarray, history: deque) -> None:
+    """Draw detection history panel on the left side of frame."""
+    h, w = frame.shape[:2]
+    panel_width = 290
+
+    cv2.rectangle(frame, (0, 0), (panel_width, h), (25, 25, 35), -1)
+
+    cv2.putText(
+        frame,
+        "Detected Persons",
+        (15, 35),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.75,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+
+    cv2.line(frame, (10, 50), (panel_width - 10, 50), (80, 80, 100), 2)
+
+    y_pos = 75
+    row_height = 50
+
+    for detection in list(history)[:6]:
+        if y_pos + row_height > h - 20:
+            break
+
+        display_name = detection["display_name"]
+        timestamp = detection["timestamp"].strftime("%H:%M:%S")
+        confidence = int(detection["confidence"] * 100)
+
+        cv2.putText(
+            frame,
+            display_name,
+            (20, y_pos),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (0, 220, 80),
+            2,
+            cv2.LINE_AA,
+        )
+
+        cv2.putText(
+            frame,
+            f"{timestamp}",
+            (20, y_pos + 22),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (150, 150, 180),
+            1,
+            cv2.LINE_AA,
+        )
+
+        cv2.putText(
+            frame,
+            f"Conf: {confidence}%",
+            (20, y_pos + 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (100, 200, 255),
+            1,
+        )
+
+        cv2.line(frame, (12, y_pos + 45), (panel_width - 12, y_pos + 45), (50, 50, 70), 1)
+        y_pos += row_height
+
+
 def _camera_frame_generator(record_attendance: bool = True, every_n_frames: int = 2):
     det, rec_model = _require_models()
     if SessionLocal is None:
@@ -198,6 +268,7 @@ def _camera_frame_generator(record_attendance: bool = True, every_n_frames: int 
     svc = AttendanceService(db)
     frame_index = 0
     last_results: list[dict] = []
+    detection_history: deque = deque(maxlen=15)
 
     try:
         while True:
@@ -228,6 +299,13 @@ def _camera_frame_generator(record_attendance: bool = True, every_n_frames: int 
                                 is_real=True,
                             )
 
+                        detection_history.append({
+                            "identity": identity,
+                            "display_name": display_name,
+                            "confidence": rec["confidence"],
+                            "timestamp": datetime.now(),
+                        })
+
                     last_results.append(
                         {
                             "bbox": [int(value) for value in face.bbox.tolist()],
@@ -240,6 +318,8 @@ def _camera_frame_generator(record_attendance: bool = True, every_n_frames: int 
                     )
 
             display = frame.copy()
+            h, w = display.shape[:2]
+
             _draw_camera_header(display)
             for result in last_results:
                 _draw_face_label(
@@ -249,6 +329,8 @@ def _camera_frame_generator(record_attendance: bool = True, every_n_frames: int 
                     result["confidence"],
                     result["known"],
                 )
+
+            _draw_detection_history(display, detection_history)
 
             ok, encoded = cv2.imencode(".jpg", display, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
             if not ok:

@@ -4,6 +4,8 @@ from __future__ import annotations
 import queue
 import threading
 import time
+from collections import deque
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -22,7 +24,7 @@ except ImportError:  # pragma: no cover
 
 
 class RealtimePipeline:
-    def __init__(self, camera_source=None):
+    def __init__(self, camera_source=None, history_size=15):
         source = CAMERA_SOURCE if camera_source is None else camera_source
         self.cap = cv2.VideoCapture(source)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
@@ -32,6 +34,9 @@ class RealtimePipeline:
         self.result_q: queue.Queue = queue.Queue(maxsize=2)
         self.running = False
         self.latencies_ms: list[float] = []
+
+        self.detection_history: deque = deque(maxlen=history_size)
+        self.detected_identities: set[str] = set()
 
         self.detector = FaceDetector()
         self.recognizer = FaceRecognizer()
@@ -63,6 +68,15 @@ class RealtimePipeline:
                 rec = self.recognizer.recognize(face.embedding)
                 rec["bbox"] = face.bbox.tolist()
                 results.append(rec)
+
+                identity = rec["identity"]
+                if identity != "unknown":
+                    self.detected_identities.add(identity)
+                    self.detection_history.append({
+                        "identity": identity,
+                        "confidence": rec["confidence"],
+                        "timestamp": datetime.now(),
+                    })
 
             latency_ms = (time.perf_counter() - started) * 1000
             if self.result_q.full():
@@ -97,6 +111,9 @@ class RealtimePipeline:
                 continue
 
             display = last_frame.copy()
+            h, w = display.shape[:2]
+
+            timestamp_str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
             for result in last_results:
                 box = [int(value) for value in result["bbox"]]
                 identity = result["identity"]
@@ -126,6 +143,18 @@ class RealtimePipeline:
                     2,
                 )
 
+            cv2.putText(
+                display,
+                timestamp_str,
+                (max(10, w - 350), 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 255),
+                2,
+            )
+
+            self._draw_detection_history(display)
+
             cv2.imshow("CamAI Attendance", display)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
@@ -133,6 +162,68 @@ class RealtimePipeline:
         self.running = False
         self.cap.release()
         cv2.destroyAllWindows()
+
+    def _draw_detection_history(self, frame: cv2.Mat) -> None:
+        """Draw detection history panel on the left side of frame."""
+        h, w = frame.shape[:2]
+        panel_width = 280
+
+        cv2.rectangle(frame, (0, 0), (panel_width, h), (30, 30, 30), -1)
+
+        cv2.putText(
+            frame,
+            "Detected Persons",
+            (15, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            2,
+        )
+
+        cv2.line(frame, (10, 45), (panel_width - 10, 45), (100, 100, 100), 1)
+
+        y_pos = 70
+        row_height = 45
+        for idx, detection in enumerate(list(self.detection_history)[:6]):
+            if y_pos + row_height > h - 20:
+                break
+
+            identity = detection["identity"]
+            timestamp = detection["timestamp"].strftime("%H:%M:%S")
+            confidence = int(detection["confidence"] * 100)
+
+            cv2.putText(
+                frame,
+                identity,
+                (20, y_pos),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 220, 80),
+                1,
+            )
+
+            cv2.putText(
+                frame,
+                timestamp,
+                (20, y_pos + 18),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (150, 150, 150),
+                1,
+            )
+
+            cv2.putText(
+                frame,
+                f"Conf: {confidence}%",
+                (20, y_pos + 34),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (100, 200, 255),
+                1,
+            )
+
+            cv2.line(frame, (15, y_pos + 38), (panel_width - 15, y_pos + 38), (60, 60, 60), 1)
+            y_pos += row_height
 
 
 if __name__ == "__main__":

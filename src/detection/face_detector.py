@@ -73,19 +73,23 @@ class FaceDetector:
             known = bool(name and name != "unknown")
             color = (0, 220, 80) if known else (0, 80, 220)
 
-            cv2.rectangle(frame, (box[0], box[1]), (box[2], box[3]), color, 2)
+            cv2.rectangle(frame, (box[0], box[1]), (box[2], box[3]), color, 3)
+
             label = f"{name} ({score:.0%})" if name else f"face ({score:.0%})"
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-            y1 = max(0, box[1] - th - 10)
-            cv2.rectangle(frame, (box[0], y1), (box[0] + tw + 4, box[1]), color, -1)
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.65, 2)
+
+            label_bg_padding = 8
+            y1 = max(0, box[1] - th - label_bg_padding * 2)
+            cv2.rectangle(frame, (box[0] - label_bg_padding, y1), (box[0] + tw + label_bg_padding, box[1]), color, -1)
             cv2.putText(
                 frame,
                 label,
-                (box[0] + 2, max(12, box[1] - 6)),
+                (box[0], box[1] - label_bg_padding),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
+                0.65,
                 (255, 255, 255),
                 2,
+                cv2.LINE_AA,
             )
         return frame
 
