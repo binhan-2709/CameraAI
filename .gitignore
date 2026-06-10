@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Data & Models (thường quá lớn để commit)
+data/raw/
+data/augmented/
+models/*.pkl
+models/*.onnx
+models/*.pt
+tests/assets/*.pkl
+
+# Database
+*.db
+*.sqlite
+
+# Environment
+.env
+*.env.local
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/

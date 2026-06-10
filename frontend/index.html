@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CamAI Attendance</title>
+  <link rel="stylesheet" href="./assets/css/main.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">CA</div>
+      <div>
+        <div class="brand-name">CamAI</div>
+        <div class="brand-subtitle">Attendance Console</div>
+      </div>
+    </div>
+
+    <nav class="nav" aria-label="Điều hướng">
+      <button class="nav-item active" type="button" data-view="dashboard">
+        <span class="nav-icon">▦</span>
+        <span>Tổng quan</span>
+      </button>
+      <button class="nav-item" type="button" data-view="employees">
+        <span class="nav-icon">◎</span>
+        <span>Nhân viên</span>
+      </button>
+      <button class="nav-item" type="button" data-view="system">
+        <span class="nav-icon">◌</span>
+        <span>Hệ thống</span>
+      </button>
+    </nav>
+
+    <section class="api-card">
+      <label for="api-base">Backend API</label>
+      <input id="api-base" type="url" value="http://localhost:8000">
+      <button id="save-api" type="button">Lưu cấu hình</button>
+    </section>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Attendance operations</p>
+        <h1>Bảng chấm công</h1>
+        <p class="subtitle">Theo dõi check-in, check-out, trạng thái đi muộn và dữ liệu camera.</p>
+      </div>
+      <div class="topbar-actions">
+        <input id="date-input" type="date">
+        <button id="refresh-btn" class="icon-button" type="button" title="Làm mới">↻</button>
+        <button id="export-btn" class="primary-button" type="button">⇩ Xuất Excel</button>
+      </div>
+    </header>
+
+    <section class="status-strip">
+      <div class="status-pill">
+        <span id="live-dot" class="dot"></span>
+        <span id="api-status">Đang kiểm tra backend...</span>
+      </div>
+      <span id="clock">--:--:--</span>
+    </section>
+
+    <section id="dashboard-view" class="view active">
+      <div class="stats-grid">
+        <article class="metric metric-total">
+          <span>Tổng nhân viên</span>
+          <strong id="total-employees">0</strong>
+        </article>
+        <article class="metric metric-present">
+          <span>Có mặt</span>
+          <strong id="present-count">0</strong>
+        </article>
+        <article class="metric metric-late">
+          <span>Đi muộn</span>
+          <strong id="late-count">0</strong>
+        </article>
+        <article class="metric metric-absent">
+          <span>Vắng mặt</span>
+          <strong id="absent-count">0</strong>
+        </article>
+      </div>
+
+      <section class="work-grid">
+        <article class="panel manual-panel">
+          <div class="panel-header compact">
+            <div>
+              <h2>Check-in / Check-out thủ công</h2>
+              <p>Dùng khi cần sửa nhanh cho quầy lễ tân hoặc ca trực.</p>
+            </div>
+          </div>
+          <form id="manual-form" class="manual-form">
+            <label for="manual-employee">Nhân viên</label>
+            <select id="manual-employee" required>
+              <option value="">Chọn nhân viên</option>
+            </select>
+            <div class="button-row">
+              <button class="success-button" type="submit" data-event="check_in">Check-in</button>
+              <button class="danger-button" type="submit" data-event="check_out">Check-out</button>
+            </div>
+            <p id="manual-message" class="manual-message">Chưa có thao tác.</p>
+          </form>
+        </article>
+
+        <article class="panel summary-panel">
+          <div class="panel-header compact">
+            <div>
+              <h2>Trạng thái vận hành</h2>
+              <p>Tóm tắt nhanh backend và database khuôn mặt.</p>
+            </div>
+          </div>
+          <dl class="mini-system">
+            <div><dt>Detector</dt><dd id="mini-detector">-</dd></div>
+            <div><dt>Face DB</dt><dd id="mini-db">-</dd></div>
+            <div><dt>Embedding</dt><dd id="mini-embedding">-</dd></div>
+          </dl>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Attendance theo ngày</h2>
+            <p id="table-caption">Dữ liệu được tải từ backend.</p>
+          </div>
+          <div class="segmented" role="group" aria-label="Lọc trạng thái">
+            <button class="segment active" type="button" data-filter="all">Tất cả</button>
+            <button class="segment" type="button" data-filter="present">Có mặt</button>
+            <button class="segment" type="button" data-filter="late">Muộn</button>
+            <button class="segment" type="button" data-filter="absent">Vắng</button>
+            <button class="segment" type="button" data-filter="checkout_missing">Chưa checkout</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Mã NV</th>
+                <th>Họ tên</th>
+                <th>Phòng ban</th>
+                <th>Check-in</th>
+                <th>Check-out</th>
+                <th>Số giờ</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody id="attendance-body">
+              <tr><td class="empty" colspan="7">Đang tải dữ liệu...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section id="employees-view" class="view">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Danh sách nhân viên</h2>
+            <p>Nhân viên đang active trong hệ thống.</p>
+          </div>
+        </div>
+        <div id="employee-list" class="employee-list"></div>
+      </section>
+    </section>
+
+    <section id="system-view" class="view">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Trạng thái hệ thống</h2>
+            <p>Thông tin model nhận diện và database khuôn mặt.</p>
+          </div>
+        </div>
+        <dl class="system-grid">
+          <div><dt>Detector</dt><dd id="sys-detector">-</dd></div>
+          <div><dt>Embedding</dt><dd id="sys-embedding">-</dd></div>
+          <div><dt>Face DB</dt><dd id="sys-db">-</dd></div>
+          <div><dt>People</dt><dd id="sys-people">-</dd></div>
+        </dl>
+      </section>
+    </section>
+  </main>
+
+  <script src="./assets/js/app.js"></script>
+</body>
+</html>
