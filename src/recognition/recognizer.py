@@ -14,12 +14,12 @@ except Exception:  # pragma: no cover - depends on local environment
     faiss = None
 
 try:
-    from config import FACE_DB_PATH, FACE_THRESHOLD
+    from config import FACE_DB_PATH, FACE_THRESHOLD, get_runtime_settings
 except ImportError:  # pragma: no cover
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from config import FACE_DB_PATH, FACE_THRESHOLD
+    from config import FACE_DB_PATH, FACE_THRESHOLD, get_runtime_settings
 
 
 EMBEDDING_DIM = 512
@@ -32,13 +32,25 @@ class FaceRecognizer:
         self.embeddings: list[np.ndarray] = []
         self.labels: list[str] = []
         self.index: Any = None
+        self._last_mtime: float = 0.0
 
         if Path(self.db_path).exists():
             self.load()
         else:
             self._rebuild_index()
 
+    def check_reload(self) -> None:
+        if Path(self.db_path).exists():
+            try:
+                mtime = Path(self.db_path).stat().st_mtime
+                if self._last_mtime < mtime:
+                    self.load()
+                    self._last_mtime = mtime
+            except Exception:
+                pass
+
     def recognize(self, embedding: np.ndarray | None) -> dict:
+        self.check_reload()
         if embedding is None:
             return {"identity": "unknown", "confidence": 0.0, "status": "no_embedding"}
         if not self.labels:
@@ -54,7 +66,8 @@ class FaceRecognizer:
 
         sims, idxs = self._search(emb, k=min(5, len(self.labels)))
         best_sim = float(sims[0])
-        if best_sim < self.threshold:
+        threshold = get_runtime_settings()["face_threshold"]
+        if best_sim < threshold:
             return {"identity": "unknown", "confidence": best_sim, "status": "unknown"}
 
         top_labels = [self.labels[i] for i in idxs if i >= 0]
@@ -69,8 +82,16 @@ class FaceRecognizer:
 
         self.embeddings.extend(new_embs)
         self.labels.extend([employee_id] * len(new_embs))
-        self._rebuild_index()
+        
+        if faiss is not None and self.index is not None:
+            mat = np.asarray(new_embs, dtype="float32")
+            self.index.add(mat)
+        else:
+            self._rebuild_index()
+
         self.save()
+        if Path(self.db_path).exists():
+            self._last_mtime = Path(self.db_path).stat().st_mtime
         return len(new_embs)
 
     def remove_person(self, employee_id: str) -> int:
@@ -82,6 +103,8 @@ class FaceRecognizer:
             self.embeddings, self.labels = [], []
         self._rebuild_index()
         self.save()
+        if Path(self.db_path).exists():
+            self._last_mtime = Path(self.db_path).stat().st_mtime
         return before - len(self.labels)
 
     def save(self) -> None:
@@ -110,10 +133,14 @@ class FaceRecognizer:
         if faiss is not None and data.get("index") is not None:
             try:
                 self.index = faiss.deserialize_index(data["index"])
+                if Path(self.db_path).exists():
+                    self._last_mtime = Path(self.db_path).stat().st_mtime
                 return
             except Exception:
                 pass
         self._rebuild_index()
+        if Path(self.db_path).exists():
+            self._last_mtime = Path(self.db_path).stat().st_mtime
 
     def _search(self, emb: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
         if faiss is not None and self.index is not None:

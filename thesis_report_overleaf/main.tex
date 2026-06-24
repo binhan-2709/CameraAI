@@ -1,0 +1,269 @@
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{titlesec}
+\usepackage{titletoc}
+\usepackage{tocloft}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{listings}
+\usepackage{tikz}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{csquotes}
+\usepackage{appendix}
+\usepackage[numbers,sort&compress]{natbib}
+
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc}
+
+\geometry{
+  left=3.0cm,
+  right=2.5cm,
+  top=2.5cm,
+  bottom=2.5cm
+}
+
+\onehalfspacing
+\setlength{\parindent}{1.0cm}
+\setlength{\parskip}{0pt}
+\setlist[itemize]{topsep=3pt,itemsep=2pt,parsep=0pt}
+\setlist[enumerate]{topsep=3pt,itemsep=2pt,parsep=0pt}
+
+\definecolor{usthblue}{HTML}{1F4E79}
+\definecolor{softblue}{HTML}{EAF2F8}
+\definecolor{softgray}{HTML}{F4F6F8}
+\definecolor{codegray}{HTML}{F7F7F7}
+\definecolor{codeborder}{HTML}{D9E2EC}
+
+% Re-format chapter and section titles to match template
+\titleformat{\chapter}[display]
+  {\normalfont\bfseries\color{usthblue}}
+  {\chaptertitlename\ \thechapter}{12pt}{\LARGE}
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{usthblue}}
+  {\thesection}{0.8em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{usthblue}}
+  {\thesubsection}{0.8em}{}
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries}
+  {\thesubsubsection}{0.8em}{}
+
+\captionsetup{font=small,labelfont=bf}
+\renewcommand{\cftchapfont}{\bfseries}
+\renewcommand{\cftchappagefont}{\bfseries}
+
+% Setup running headers and footers matching the ADAS template format
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[R]{Camera AI USTH 2026}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% Redefine the plain page style (used on chapter start pages) so headers are retained
+\fancypagestyle{plain}{
+  \fancyhf{}
+  \fancyhead[R]{Camera AI USTH 2026}
+  \fancyfoot[C]{\thepage}
+  \renewcommand{\headrulewidth}{0.4pt}
+}
+
+\lstdefinestyle{pythonstyle}{
+  backgroundcolor=\color{codegray},
+  frame=single,
+  rulecolor=\color{codeborder},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  keywordstyle=\color{usthblue}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{teal}
+}
+
+\newcommand{\projecttitle}{Camera AI Attendance System Using Real-Time Face Recognition}
+\newcommand{\studentname}{Dang Binh An}
+\newcommand{\studentid}{23BI14005}
+\newcommand{\internalsupervisor}{Tran Hoang Tung}
+\newcommand{\externalsupervisor}{Pham Van Dan}
+\newcommand{\academicyear}{2025--2026}
+
+\begin{document}
+
+% --- Cover Page (No page number, no header) ---
+\begin{titlepage}
+  % Khung viền kép (Double border) giống hình mẫu
+  \begin{tikzpicture}[remember picture, overlay]
+    % Viền ngoài (đậm)
+    \draw[line width=1.5pt] 
+      ($(current page.north west) + (2.0cm, -2.0cm)$) 
+      rectangle 
+      ($(current page.south east) + (-1.5cm, 2.0cm)$);
+    % Viền trong (mảnh)
+    \draw[line width=0.5pt] 
+      ($(current page.north west) + (2.1cm, -2.1cm)$) 
+      rectangle 
+      ($(current page.south east) + (-1.6cm, 2.1cm)$);
+  \end{tikzpicture}
+
+  \centering
+  \vspace*{0.2cm}
+  {\large\bfseries UNIVERSITY OF SCIENCE AND TECHNOLOGY\par}
+  {\large\bfseries OF HANOI\par}
+  \vspace{0.2cm}
+  {\normalsize\bfseries VIETNAM FRANCE UNIVERSITY\par}
+  
+  \vspace{1.5cm}
+
+  % USTH Logo
+  \IfFileExists{usth_logo.png}{
+    \includegraphics[width=6.5cm]{usth_logo.png}\par
+  }{
+    \begin{tikzpicture}
+      \draw[thick, dashed] (0,0) rectangle (6.5, 2.5);
+      \node[align=center] at (3.25, 1.25) {\small\bfseries USTH LOGO\par\scriptsize (Place usth\_logo.png here)};
+    \end{tikzpicture}\par
+  }
+
+  \vspace{1.5cm}
+
+  % Hai đường gạch ngang bao quanh tên Thesis
+  \rule{0.85\textwidth}{0.8pt} \par
+  \vspace{0.5cm}
+  {\Large\bfseries FINAL THESIS\par}
+  \vspace{0.3cm}
+  {\large\bfseries \projecttitle\par}
+  \vspace{0.4cm}
+  \rule{0.85\textwidth}{0.8pt} \par
+
+  \vspace{2.0cm}
+
+  % Thông tin Sinh viên & Giảng viên (Chỉ in đậm tiêu đề theo ảnh)
+  {\large \textbf{Student:} \studentname\ - \studentid\par}
+  \vspace{0.6cm}
+  {\large \textbf{Internal Supervisor:} \internalsupervisor\par}
+  \vspace{0.6cm}
+  {\large \textbf{External Supervisor:} \externalsupervisor\par}
+
+  \vfill
+
+  % Thông tin Năm học & Địa điểm
+  {\large\bfseries Academic Year: \academicyear\par}
+  \vspace{0.3cm}
+  {\large Hanoi, July 2026\par}
+  \vspace{0.5cm}
+\end{titlepage}
+
+% --- Sequential Arabic Page Numbering starting from Certification Page ---
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+% --- Supervisor Certification Page ---
+\chapter*{Supervisor Certification}
+\addcontentsline{toc}{chapter}{Supervisor Certification}
+To whom it may concern,
+
+I, \externalsupervisor, certify that the thesis/internship report of Mr. \studentname\ is qualified to be presented in the Internship Jury \academicyear.
+
+\vspace{1.5cm}
+\begin{flushright}
+  \begin{minipage}{0.4\textwidth}
+    \centering
+    Hanoi, July 2026 \\[1.5cm]
+    Supervisor's signature
+  \end{minipage}
+\end{flushright}
+
+\clearpage
+
+% --- Acknowledgements Page ---
+\chapter*{Acknowledgements}
+\addcontentsline{toc}{chapter}{Acknowledgements}
+I would like to express my heartfelt gratitude to all those who supported me throughout the course of my internship and the completion of this thesis.
+
+First and foremost, I wish to extend my deepest gratitude to my external supervisor, \externalsupervisor. More than a mentor, he has been a true companion throughout this journey. It has been a great honor to work with you, and I am incredibly grateful for the invaluable guidance, resources, and supportive working environment that I received during the development of this project.
+
+I would also extend my sincere thanks to my internal supervisor, \internalsupervisor, for his insightful feedback, academic support, and continuous encouragement throughout this project.
+
+To my dear family, thank you for the unwavering emotional support and encouragement, which kept me motivated and grounded during this journey. Whatever I do will never be enough to express my love for all of you.
+
+And finally, to my friends and colleagues at Vinorsoft, thank you for your help, guidance, and for providing a wonderful, collaborative environment during my internship.
+
+\clearpage
+
+% --- List of Abbreviations ---
+\chapter*{List of Abbreviations}
+\addcontentsline{toc}{chapter}{List of Abbreviations}
+\begin{longtable}{p{3.5cm}p{10.5cm}}
+\toprule
+\textbf{Abbreviation} & \textbf{Meaning} \\
+\midrule
+AI & Artificial Intelligence \\
+API & Application Programming Interface \\
+CNN & Convolutional Neural Network \\
+CPU & Central Processing Unit \\
+CV & Computer Vision \\
+DB & Database \\
+DL & Deep Learning \\
+FAISS & Facebook AI Similarity Search \\
+FER & Facial Expression Recognition \\
+FPS & Frames Per Second \\
+HSV & Hue, Saturation, Value \\
+JSON & JavaScript Object Notation \\
+MTCNN & Multi-task Cascaded Convolutional Networks \\
+ONNX & Open Neural Network Exchange \\
+ORM & Object Relational Mapping \\
+REST & Representational State Transfer \\
+ROI & Region of Interest \\
+SQL & Structured Query Language \\
+SSD & Single Shot Detector \\
+YOLO & You Only Look Once \\
+\bottomrule
+\end{longtable}
+
+\clearpage
+
+% --- Table of Contents, Lists ---
+\tableofcontents
+\clearpage
+\listoffigures
+\clearpage
+\listoftables
+\clearpage
+
+% --- Body Chapters (Chapter 1 to 7) ---
+\include{chapters/01_introduction}
+\include{chapters/02_dataset}
+\include{chapters/03_model_architecture}
+\include{chapters/04_system_pipeline}
+\include{chapters/05_evaluation}
+\include{chapters/06_result_inference}
+\include{chapters/07_conclusion}
+
+\clearpage
+\addcontentsline{toc}{chapter}{References}
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\clearpage
+\appendix
+\include{chapters/appendix}
+
+\end{document}

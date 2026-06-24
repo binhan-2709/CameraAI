@@ -1,0 +1,82 @@
+\chapter{Evaluation}
+
+\section{Face Recognition Evaluation Protocol}
+To evaluate the reliability of the face verification module (InceptionResnetV1), we establish a validation protocol using standard biometric metrics:
+\begin{itemize}
+    \item \textbf{False Acceptance Rate (FAR):} The probability that the system incorrectly matches an unauthorized person against a registered employee embedding:
+    \begin{equation}
+        \text{FAR}(\theta) = \frac{\text{FP}(\theta)}{\text{FP}(\theta) + \text{TN}(\theta)} = \frac{\text{Count}(\text{Sim}_{\text{impostor}} \ge \theta)}{\text{Total impostor attempts}}
+    \end{equation}
+    where $\text{FP}(\theta)$ and $\text{TN}(\theta)$ are the False Positives and True Negatives at threshold $\theta$, and $\text{Sim}_{\text{impostor}}$ represents the similarity scores of different identities.
+    \item \textbf{False Rejection Rate (FRR):} The probability that the system fails to recognize a valid registered employee:
+    \begin{equation}
+        \text{FRR}(\theta) = \frac{\text{FN}(\theta)}{\text{TP}(\theta) + \text{FN}(\theta)} = \frac{\text{Count}(\text{Sim}_{\text{genuine}} < \theta)}{\text{Total genuine attempts}}
+    \end{equation}
+    where $\text{TP}(\theta)$ and $\text{FN}(\theta)$ are the True Positives and False Negatives at threshold $\theta$, and $\text{Sim}_{\text{genuine}}$ represents the similarity scores of matching identities.
+    \item \textbf{True Acceptance Rate (TAR):} The probability that a registered employee is correctly verified:
+    \begin{equation}
+        \text{TAR}(\theta) = 1.0 - \text{FRR}(\theta) = \frac{\text{TP}(\theta)}{\text{TP}(\theta) + \text{FN}(\theta)}
+    \end{equation}
+\end{itemize}
+We perform a threshold sweep by varying the cosine similarity threshold $\theta_{\text{verify}}$ from $0.40$ to $0.85$ in steps of $0.05$. The objective is to identify the Equal Error Rate (EER), which represents the point where:
+\begin{equation}
+    \text{FAR}(\theta_{\text{EER}}) = \text{FRR}(\theta_{\text{EER}})
+\end{equation}
+In commercial attendance settings, a low FAR is prioritized over a low FRR. This is because a False Acceptance represents a security breach (allowing an impostor or printed photo to check in), whereas a False Rejection simply requires the employee to slightly adjust their head position or smile again for a second frame verification. Hence, the system operating threshold is calibrated to satisfy a target $\text{FAR} \le 0.1\%$.
+
+\section{Emotion Model Training Protocol}
+The training pipeline for the custom \textit{Mini-Xception} emotion classifier is implemented in PyTorch \cite{pytorch} and optimized for CPU inference using ONNX Runtime.
+
+\subsection{Training Datasets and Target Mapping}
+We merge the training splits of FER-2013 and FERPlus as the training set, totaling 28,709 images. For validation and testing, we use the CK+ and JAFFE datasets, alongside the FERPlus test split. The target emotions are mapped into 8 standard classes: neutral, happiness, surprise, sadness, anger, disgust, contempt, and fear.
+
+\subsection{Weighted Cross-Entropy Loss Optimization}
+The FER datasets exhibit a high degree of class imbalance (e.g., happiness and neutral images are heavily over-represented compared to disgust or contempt). To prevent the model from biasing its predictions toward dominant classes, the loss function is configured as a Weighted Cross-Entropy Loss:
+\begin{equation}
+    \mathcal{L}_{\text{WCE}} = - \frac{1}{N} \sum_{n=1}^N \sum_{c=1}^C w_c \cdot y_{n, c} \cdot \log(p_{n, c})
+\end{equation}
+where $N$ is the batch size, $C = 8$ is the number of emotion classes, $y_{n, c} \in \{0, 1\}$ is the ground-truth binary label for sample $n$ and class $c$, and $p_{n, c}$ is the predicted softmax probability:
+\begin{equation}
+    p_{n, c} = \frac{e^{z_{n, c}}}{\sum_{j=1}^C e^{z_{n, j}}}
+\end{equation}
+The weight coefficient $w_c$ for each class $c$ is calculated as the normalized inverse frequency of the class in the training dataset:
+\begin{equation}
+    w_c = \frac{N_{\text{total}}}{C \cdot N_c}
+\end{equation}
+where $N_c$ is the count of training samples in class $c$, and $N_{\text{total}}$ is the total count of training samples across all classes.
+
+\subsection{Hyperparameters and Learning Rate Schedule}
+The network parameters are optimized using the Adam optimizer with the following configuration:
+\begin{itemize}
+    \item \textbf{Initial Learning Rate:} $\eta_0 = 0.001$, with momentum parameters $\beta_1 = 0.9$ and $\beta_2 = 0.999$.
+    \item \textbf{Weight Decay:} $L_2$ regularization penalty $\lambda = 10^{-4}$ to prevent overfitting.
+    \item \textbf{Learning Rate Decay:} We employ a \texttt{ReduceLROnPlateau} scheduler monitoring the validation loss. If the validation loss fails to decrease for 5 consecutive epochs, the learning rate is scaled down by a factor of 0.5:
+    \begin{equation}
+        \eta_{t} = 0.5 \cdot \eta_{t-1}
+    \end{equation}
+    \item \textbf{Early Stopping:} Training is terminated early if the validation loss does not show improvement for 10 consecutive epochs.
+    \item \textbf{Epochs and Batch Size:} The training runs for up to 50 epochs with a mini-batch size of 64.
+\end{itemize}
+
+\section{System Latency and Throughput Benchmarks}
+To evaluate the real-time feasibility of the system on standard CPU-based edge hardware, we benchmark the computational latency of each individual module.
+
+\subsection{Hardware Configuration}
+Benchmarks are conducted on a standard laptop CPU:
+\begin{itemize}
+    \item \textbf{Processor:} Intel Core i5-1135G7 @ 2.40GHz (4 Cores, 8 Threads).
+    \item \textbf{RAM:} 8GB DDR4 @ 3200MHz.
+    \item \textbf{Software Stack:} Python 3.10, PyTorch 2.1, OpenCV 4.8 (using OpenMP threading), ONNX Runtime 1.16.
+\end{itemize}
+
+\subsection{Inference Profiling Methodology}
+We run the system on a test video containing 1,000 frames to measure the execution latency of individual modules. The latency measurements are captured using Python's high-resolution timer \texttt{time.perf_counter()} and averaged over all frames. The profiled components include:
+\begin{enumerate}
+    \item \textbf{Face Detection Latency:} Comparing YOLOv8-face, MTCNN, and Haar Cascade.
+    \item \textbf{ROI Tracking Latency:} Measuring the speed of \texttt{cv2.matchTemplate} template matching.
+    \item \textbf{Face Embedding Extraction Latency:} Measuring the forward pass of InceptionResnetV1 on a $160 \times 160$ face crop.
+    \item \textbf{Emotion Classifier Latency:} Measuring the forward pass of Mini-Xception (ONNX via OpenCV DNN) on a $64 \times 64$ crop.
+    \item \textbf{Liveness Detection Latency:} Measuring the combined execution time of Laplacian variance, HSV skin filtering, and Canny margin checks.
+    \item \textbf{End-to-End System FPS:} Evaluating system throughput (Frames Per Second) as a function of the tracking step size $N_{\text{track}} \in \{0, 5, 10, 15, 20\}$, where $N_{\text{track}} = 0$ represents running full CNN detection on every single frame.
+\end{enumerate}
+This benchmark assesses the performance improvements achieved by combining CNN models with rule-based tracking, liveness, and gesture filters.

@@ -1,0 +1,5 @@
+{
+  "late_threshold": "09:00",
+  "cooldown_minutes": 10,
+  "face_threshold": 0.6
+}

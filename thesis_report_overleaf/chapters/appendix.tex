@@ -1,0 +1,124 @@
+\chapter{Installation and Usage Notes}
+
+\section{Python Environment}
+
+The recommended setup is:
+
+\begin{lstlisting}[style=pythonstyle]
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+\end{lstlisting}
+
+If PyTorch CPU wheels must be installed separately on Windows, the following command can be used before installing the remaining requirements:
+
+\begin{lstlisting}[style=pythonstyle]
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+\end{lstlisting}
+
+\section{Typical Workflow}
+
+\begin{enumerate}
+  \item Collect employee images:
+\begin{lstlisting}[style=pythonstyle]
+python src/data/collect_faces.py
+\end{lstlisting}
+  \item Augment images:
+\begin{lstlisting}[style=pythonstyle]
+python src/data/augment.py
+\end{lstlisting}
+  \item Build the face database:
+\begin{lstlisting}[style=pythonstyle]
+python src/recognition/build_database.py
+\end{lstlisting}
+  \item Run the backend:
+\begin{lstlisting}[style=pythonstyle]
+uvicorn src.api.main:app --reload --port 8000
+\end{lstlisting}
+  \item Run the frontend:
+\begin{lstlisting}[style=pythonstyle]
+python -m http.server 5500 --directory frontend
+\end{lstlisting}
+  \item Open the dashboard at:
+\begin{lstlisting}[style=pythonstyle]
+http://localhost:5500
+\end{lstlisting}
+\end{enumerate}
+
+\section{Main API Examples}
+
+\begin{lstlisting}[style=pythonstyle]
+GET  /health
+POST /api/employees/register
+GET  /api/employees
+POST /api/recognize
+GET  /api/attendance/report
+POST /api/attendance/manual
+GET  /api/attendance/logs
+GET  /api/settings
+POST /api/settings
+\end{lstlisting}
+
+\section{Suggested Evaluation Protocol}
+
+For future formal evaluation, the following protocol is recommended:
+
+\begin{enumerate}
+  \item Register each employee with 5 to 10 high-quality enrollment images.
+  \item Capture at least 20 validation images per employee under realistic conditions.
+  \item Include impostor attempts from people not enrolled in the database.
+  \item Compute genuine and impostor similarity distributions.
+  \item Sweep the recognition threshold from 0.2 to 0.9.
+  \item Report true acceptance, false acceptance, false rejection, and equal error rate.
+  \item Repeat the test under different lighting conditions and camera distances.
+\end{enumerate}
+
+\chapter{Selected Code Excerpts}
+
+\section{Recognition Decision Logic}
+
+The recognizer normalizes embeddings, searches the database, and compares the best similarity with a runtime threshold. The simplified logic is:
+
+\begin{lstlisting}[style=pythonstyle,language=Python]
+emb = normalize(input_embedding)
+sims, idxs = search(emb, k=min(5, len(labels)))
+best_sim = float(sims[0])
+threshold = get_runtime_settings()["face_threshold"]
+
+if best_sim < threshold:
+    return {
+        "identity": "unknown",
+        "confidence": best_sim,
+        "status": "unknown"
+    }
+
+top_labels = [labels[i] for i in idxs if i >= 0]
+identity = Counter(top_labels).most_common(1)[0][0]
+return {
+    "identity": identity,
+    "confidence": best_sim,
+    "status": "recognized"
+}
+\end{lstlisting}
+
+\section{Attendance Event Decision}
+
+The automatic attendance service uses the first event of the day as check-in and a later event as check-out, while blocking repeated recognition during the cooldown period.
+
+\begin{lstlisting}[style=pythonstyle,language=Python]
+recent = query_recent_log(employee_id, cooldown_minutes)
+if recent:
+    return {"logged": False, "reason": "cooldown"}
+
+has_check_in = query_today_check_in(employee_id)
+event_type = "check_out" if has_check_in else "check_in"
+
+create_attendance_log(
+    employee_id=employee_id,
+    event_type=event_type,
+    confidence=confidence,
+    camera_id=camera_id,
+    is_real_face=is_real,
+    liveness_score=liveness_score
+)
+\end{lstlisting}

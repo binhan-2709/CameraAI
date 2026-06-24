@@ -15,6 +15,7 @@ data/augmented/
 models/*.pkl
 models/*.onnx
 models/*.pt
+models/*.pth
 tests/assets/*.pkl
 
 # Database

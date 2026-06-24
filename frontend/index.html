@@ -1,11 +1,13 @@
 <!doctype html>
 <html lang="vi">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CamAI Attendance</title>
   <link rel="stylesheet" href="./assets/css/main.css">
 </head>
+
 <body>
   <aside class="sidebar">
     <div class="brand">
@@ -18,24 +20,27 @@
 
     <nav class="nav" aria-label="Điều hướng">
       <button class="nav-item active" type="button" data-view="dashboard">
-        <span class="nav-icon">▦</span>
+        <span class="nav-icon">📊</span>
         <span>Tổng quan</span>
       </button>
       <button class="nav-item" type="button" data-view="employees">
-        <span class="nav-icon">◎</span>
+        <span class="nav-icon">👥</span>
         <span>Nhân viên</span>
       </button>
+      <button class="nav-item" type="button" data-view="logs">
+        <span class="nav-icon">📋</span>
+        <span>Nhật ký</span>
+      </button>
+      <button class="nav-item" type="button" data-view="settings">
+        <span class="nav-icon">⚙️</span>
+        <span>Cấu hình</span>
+      </button>
       <button class="nav-item" type="button" data-view="system">
-        <span class="nav-icon">◌</span>
+        <span class="nav-icon">💻</span>
         <span>Hệ thống</span>
       </button>
     </nav>
 
-    <section class="api-card">
-      <label for="api-base">Backend API</label>
-      <input id="api-base" type="url" value="http://localhost:8000">
-      <button id="save-api" type="button">Lưu cấu hình</button>
-    </section>
   </aside>
 
   <main class="main">
@@ -46,19 +51,12 @@
         <p class="subtitle">Theo dõi check-in, check-out, trạng thái đi muộn và dữ liệu camera.</p>
       </div>
       <div class="topbar-actions">
+        <div id="clock" style="font-size: 16px; font-weight: 700; color: var(--blue); margin-right: 12px; font-family: monospace; min-width: 70px; text-align: right;">--:--:--</div>
         <input id="date-input" type="date">
         <button id="refresh-btn" class="icon-button" type="button" title="Làm mới">↻</button>
         <button id="export-btn" class="primary-button" type="button">⇩ Xuất Excel</button>
       </div>
     </header>
-
-    <section class="status-strip">
-      <div class="status-pill">
-        <span id="live-dot" class="dot"></span>
-        <span id="api-status">Đang kiểm tra backend...</span>
-      </div>
-      <span id="clock">--:--:--</span>
-    </section>
 
     <section id="dashboard-view" class="view active">
       <div class="stats-grid">
@@ -101,18 +99,17 @@
           </form>
         </article>
 
-        <article class="panel summary-panel">
+
+        <article class="panel logs-panel">
           <div class="panel-header compact">
             <div>
-              <h2>Trạng thái vận hành</h2>
-              <p>Tóm tắt nhanh backend và database khuôn mặt.</p>
+              <h2>Nhật ký quét mặt gần đây</h2>
+              <p>Lịch sử nhận diện tự động ngày hôm nay.</p>
             </div>
           </div>
-          <dl class="mini-system">
-            <div><dt>Detector</dt><dd id="mini-detector">-</dd></div>
-            <div><dt>Face DB</dt><dd id="mini-db">-</dd></div>
-            <div><dt>Embedding</dt><dd id="mini-embedding">-</dd></div>
-          </dl>
+          <div id="recent-logs-list" class="recent-logs-list">
+            <div class="empty">Đang tải nhật ký...</div>
+          </div>
         </article>
       </section>
 
@@ -145,7 +142,9 @@
               </tr>
             </thead>
             <tbody id="attendance-body">
-              <tr><td class="empty" colspan="7">Đang tải dữ liệu...</td></tr>
+              <tr>
+                <td class="empty" colspan="7">Đang tải dữ liệu...</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -153,14 +152,157 @@
     </section>
 
     <section id="employees-view" class="view">
+      <div class="sub-nav">
+        <button class="sub-nav-item active" type="button" data-subview="employee-list-panel">Danh sách nhân viên</button>
+        <button class="sub-nav-item" type="button" data-subview="employee-register-panel">Đăng ký nhân viên mới</button>
+      </div>
+
+      <div id="employee-list-panel" class="sub-view">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Danh sách nhân viên</h2>
+              <p>Nhân viên đang active trong hệ thống và trạng thái hôm nay.</p>
+            </div>
+            <div class="search-box">
+              <input id="employee-search" type="search" placeholder="Tìm kiếm nhân viên..." style="height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; width: 240px; font-size: 14px; outline: none;">
+            </div>
+          </div>
+          <div id="employee-list" class="employee-list"></div>
+        </section>
+      </div>
+
+      <div id="employee-register-panel" class="sub-view" style="display: none;">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Đăng ký nhân viên mới</h2>
+              <p>Tạo khuôn mặt mới cho nhân viên từ ảnh hoặc camera.</p>
+            </div>
+          </div>
+          <form id="register-form" class="register-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="reg-employee-id">Mã nhân viên *</label>
+                <input id="reg-employee-id" type="text" placeholder="VD: NV001" required>
+              </div>
+              <div class="form-group">
+                <label for="reg-name">Họ tên *</label>
+                <input id="reg-name" type="text" placeholder="VD: Nguyễn Văn A" required>
+              </div>
+              <div class="form-group">
+                <label for="reg-department">Phòng ban</label>
+                <input id="reg-department" type="text" placeholder="VD: Kỹ thuật">
+              </div>
+            </div>
+
+            <div class="camera-section">
+              <div class="mode-toggle">
+                <button class="mode-btn active" type="button" data-mode="camera">📷 Camera</button>
+                <button class="mode-btn" type="button" data-mode="upload">📁 Tải ảnh lên</button>
+              </div>
+
+              <div id="camera-mode" class="capture-mode">
+                <button id="start-camera-btn" type="button" class="success-button" style="display:none;">Kích hoạt Camera</button>
+                <button id="stop-camera-btn" type="button" class="danger-button" style="display:none;">Dừng
+                  Camera</button>
+                <video id="camera-preview" autoplay playsinline style="display:none;"></video>
+                <button id="capture-btn" type="button" class="primary-button" style="display:none;">Chụp ảnh</button>
+              </div>
+
+              <div id="upload-mode" class="capture-mode" style="display:none;">
+                <button id="upload-trigger-btn" type="button" class="primary-button">Chọn ảnh từ máy tính</button>
+                <input id="file-input" type="file" multiple accept=".jpg,.jpeg,.png,.webp" style="display:none;">
+              </div>
+            </div>
+
+            <div class="photo-gallery">
+              <h3 id="photo-count">Ảnh đã chọn: 0/3+</h3>
+              <div id="photos-grid" class="photos-grid"></div>
+            </div>
+
+            <p id="register-message" class="register-message">Chưa có thao tác.</p>
+            <button id="register-submit" type="submit" class="success-button register-submit" disabled>Đăng ký nhân
+              viên</button>
+          </form>
+        </section>
+      </div>
+    </section>
+
+    <section id="logs-view" class="view">
       <section class="panel">
         <div class="panel-header">
           <div>
-            <h2>Danh sách nhân viên</h2>
-            <p>Nhân viên đang active trong hệ thống.</p>
+            <h2>Nhật ký điểm danh chi tiết</h2>
+            <p>Lịch sử tất cả các lượt quét mặt điểm danh được ghi nhận.</p>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <input id="logs-search" type="search" placeholder="Tìm tên/mã nhân viên..." style="height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; width: 220px; font-size: 14px; outline: none;">
+            <select id="logs-filter-type" style="height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; font-size: 14px; outline: none; background: white;">
+              <option value="all">Tất cả sự kiện</option>
+              <option value="check_in">Chỉ Check-in</option>
+              <option value="check_out">Chỉ Check-out</option>
+            </select>
           </div>
         </div>
-        <div id="employee-list" class="employee-list"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Mã NV</th>
+                <th>Họ tên</th>
+                <th>Phòng ban</th>
+                <th>Sự kiện</th>
+                <th>Thời gian</th>
+                <th>Ngày</th>
+                <th>Độ tin cậy</th>
+                <th>Liveness</th>
+                <th>Biểu cảm</th>
+                <th>Thiết bị</th>
+              </tr>
+            </thead>
+            <tbody id="logs-table-body">
+              <tr>
+                <td class="empty" colspan="10">Đang tải nhật ký...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section id="settings-view" class="view">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Cấu hình quy chuẩn chấm công</h2>
+            <p>Thiết lập thời gian ca làm việc, thời gian quét và thuật toán AI.</p>
+          </div>
+        </div>
+        <form id="settings-form" style="padding: 24px; display: grid; gap: 20px; max-width: 550px;">
+          <div class="form-group" style="display: grid; gap: 6px;">
+            <label for="set-late-threshold" style="font-weight: 700; color: var(--muted); font-size: 13px;">Giờ bắt đầu tính đi muộn (HH:MM) *</label>
+            <input id="set-late-threshold" type="text" placeholder="VD: 08:30" required style="height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; font-size: 14px; outline: none;">
+            <span style="font-size: 11px; color: var(--muted);">Thời gian bắt đầu ca làm việc, quét sau giờ này sẽ tính là đi muộn.</span>
+          </div>
+
+          <div class="form-group" style="display: grid; gap: 6px;">
+            <label for="set-cooldown" style="font-weight: 700; color: var(--muted); font-size: 13px;">Giãn cách tối thiểu giữa 2 lần quét (Phút) *</label>
+            <input id="set-cooldown" type="number" min="1" max="120" placeholder="VD: 5" required style="height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; font-size: 14px; outline: none;">
+            <span style="font-size: 11px; color: var(--muted);">Khoảng thời gian tối thiểu để tránh ghi nhận trùng lặp (cooldown).</span>
+          </div>
+
+          <div class="form-group" style="display: grid; gap: 6px;">
+            <label for="set-face-threshold" style="font-weight: 700; color: var(--muted); font-size: 13px;">Ngưỡng nhận diện chính xác khuôn mặt (0.1 - 1.0) *</label>
+            <input id="set-face-threshold" type="number" step="0.05" min="0.1" max="1.0" placeholder="VD: 0.5" required style="height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; font-size: 14px; outline: none;">
+            <span style="font-size: 11px; color: var(--muted);">Độ tương đồng tối thiểu để khớp khuôn mặt (khuyến nghị: 0.45 - 0.6).</span>
+          </div>
+
+          <div style="display: flex; gap: 12px; align-items: center; margin-top: 10px;">
+            <button class="primary-button" type="submit">Lưu cài đặt</button>
+            <span id="settings-message" style="font-size: 14px; font-weight: 700;"></span>
+          </div>
+        </form>
       </section>
     </section>
 
@@ -173,15 +315,50 @@
           </div>
         </div>
         <dl class="system-grid">
-          <div><dt>Detector</dt><dd id="sys-detector">-</dd></div>
-          <div><dt>Embedding</dt><dd id="sys-embedding">-</dd></div>
-          <div><dt>Face DB</dt><dd id="sys-db">-</dd></div>
-          <div><dt>People</dt><dd id="sys-people">-</dd></div>
+          <div>
+            <dt>Detector</dt>
+            <dd id="sys-detector">-</dd>
+          </div>
+          <div>
+            <dt>Embedding</dt>
+            <dd id="sys-embedding">-</dd>
+          </div>
+          <div>
+            <dt>Face DB</dt>
+            <dd id="sys-db">-</dd>
+          </div>
+          <div>
+            <dt>People</dt>
+            <dd id="sys-people">-</dd>
+          </div>
         </dl>
+      </section>
+
+      <section class="panel" style="margin-top: 24px;">
+        <div class="panel-header">
+          <div>
+            <h2>Kết nối Backend API</h2>
+            <p>Cấu hình địa chỉ máy chủ API và theo dõi trạng thái kết nối.</p>
+          </div>
+        </div>
+        <div style="padding: 24px; display: grid; gap: 20px; max-width: 550px;">
+          <div class="form-group" style="display: grid; gap: 6px;">
+            <label for="api-base" style="font-weight: 700; color: var(--muted); font-size: 13px;">Địa chỉ Backend API *</label>
+            <input id="api-base" type="url" value="http://127.0.0.1:8000" style="height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; font-size: 14px; outline: none;">
+          </div>
+          <div style="display: flex; gap: 12px; align-items: center; margin-top: 10px;">
+            <button id="save-api" class="primary-button" type="button">Lưu cấu hình</button>
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); font-weight: 700; margin-left: 8px;">
+              <span id="live-dot" class="dot" style="width: 9px; height: 9px; flex-shrink: 0; display: inline-block; border-radius: 50%;"></span>
+              <span id="api-status">Đang kết nối...</span>
+            </div>
+          </div>
+        </div>
       </section>
     </section>
   </main>
 
   <script src="./assets/js/app.js"></script>
 </body>
+
 </html>

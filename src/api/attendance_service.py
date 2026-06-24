@@ -10,12 +10,12 @@ from sqlalchemy import Boolean, Column, DateTime, Float, String, create_engine
 from sqlalchemy.orm import Session, declarative_base
 
 try:
-    from config import BASE_DIR, COOLDOWN_MINUTES, DATABASE_URL, LATE_THRESHOLD
+    from config import BASE_DIR, DATABASE_URL, get_runtime_settings
 except ImportError:  # pragma: no cover
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from config import BASE_DIR, COOLDOWN_MINUTES, DATABASE_URL, LATE_THRESHOLD
+    from config import BASE_DIR, DATABASE_URL, get_runtime_settings
 
 
 Base = declarative_base()
@@ -41,6 +41,8 @@ class AttendanceLog(Base):
     confidence = Column(Float, default=0.0)
     camera_id = Column(String, default="CAM_01")
     is_real_face = Column(Boolean, default=True)
+    liveness_score = Column(Float, default=1.0)
+    emotion = Column(String, default="neutral")
 
 
 def _normalize_database_url(url: str) -> str:
@@ -64,6 +66,21 @@ def get_engine(url: str | None = None):
     else:
         engine = create_engine(db_url, echo=False)
     Base.metadata.create_all(engine)
+
+    # Run manual migration for new columns if they are missing
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        for column_name, sql_type in [
+            ("liveness_score", "FLOAT DEFAULT 1.0"),
+            ("is_real_face", "BOOLEAN DEFAULT 1"),
+            ("emotion", "VARCHAR DEFAULT 'neutral'"),
+        ]:
+            try:
+                conn.execute(text(f"ALTER TABLE attendance_logs ADD COLUMN {column_name} {sql_type}"))
+            except Exception:
+                # Column might already exist or table is not created yet
+                pass
+
     return engine
 
 
@@ -78,6 +95,8 @@ class AttendanceService:
         confidence: float = 1.0,
         camera_id: str = "MANUAL",
         is_real: bool = True,
+        liveness_score: float = 1.0,
+        emotion: str = "neutral",
     ) -> dict:
         if event_type not in {"check_in", "check_out"}:
             return {"logged": False, "reason": "invalid_event_type"}
@@ -105,7 +124,23 @@ class AttendanceService:
         if event_type == "check_in" and has_check_in:
             return {"logged": False, "reason": "already_checked_in"}
         if event_type == "check_out" and not has_check_in:
-            return {"logged": False, "reason": "missing_check_in"}
+            if camera_id == "REALTIME_CAMERA":
+                check_in_time = now - timedelta(seconds=1)
+                check_in_log = AttendanceLog(
+                    id=str(uuid.uuid4()),
+                    employee_id=employee_id,
+                    timestamp=check_in_time,
+                    event_type="check_in",
+                    confidence=float(confidence),
+                    camera_id=camera_id,
+                    is_real_face=is_real,
+                    liveness_score=float(liveness_score),
+                    emotion=str(emotion),
+                )
+                self.db.add(check_in_log)
+                has_check_in = True
+            else:
+                return {"logged": False, "reason": "missing_check_in"}
         if event_type == "check_out" and has_check_out:
             return {"logged": False, "reason": "already_checked_out"}
 
@@ -117,6 +152,8 @@ class AttendanceService:
             confidence=float(confidence),
             camera_id=camera_id,
             is_real_face=is_real,
+            liveness_score=float(liveness_score),
+            emotion=str(emotion),
         )
         self.db.add(log)
         self.db.commit()
@@ -127,6 +164,9 @@ class AttendanceService:
             "employee_id": employee_id,
             "timestamp": now.isoformat(),
             "confidence": round(float(confidence), 4),
+            "is_real_face": is_real,
+            "liveness_score": round(float(liveness_score), 4),
+            "emotion": str(emotion),
         }
 
     def record(
@@ -135,6 +175,8 @@ class AttendanceService:
         confidence: float,
         camera_id: str = "CAM_01",
         is_real: bool = True,
+        liveness_score: float = 1.0,
+        emotion: str = "neutral",
     ) -> dict:
         now = datetime.now()
         today_start = datetime.combine(date.today(), datetime.min.time())
@@ -143,17 +185,18 @@ class AttendanceService:
         if employee is not None and not employee.active:
             return {"logged": False, "reason": "inactive_employee"}
 
+        runtime_cooldown = get_runtime_settings()["cooldown_minutes"]
         recent = (
             self.db.query(AttendanceLog)
             .filter(
                 AttendanceLog.employee_id == employee_id,
-                AttendanceLog.timestamp >= now - timedelta(minutes=COOLDOWN_MINUTES),
+                AttendanceLog.timestamp >= now - timedelta(minutes=runtime_cooldown),
             )
             .order_by(AttendanceLog.timestamp.desc())
             .first()
         )
         if recent:
-            next_ok = recent.timestamp + timedelta(minutes=COOLDOWN_MINUTES)
+            next_ok = recent.timestamp + timedelta(minutes=runtime_cooldown)
             return {
                 "logged": False,
                 "reason": "cooldown",
@@ -180,6 +223,8 @@ class AttendanceService:
             confidence=float(confidence),
             camera_id=camera_id,
             is_real_face=is_real,
+            liveness_score=float(liveness_score),
+            emotion=str(emotion),
         )
         self.db.add(log)
         self.db.commit()
@@ -190,13 +235,17 @@ class AttendanceService:
             "employee_id": employee_id,
             "timestamp": now.isoformat(),
             "confidence": round(float(confidence), 4),
+            "is_real_face": is_real,
+            "liveness_score": round(float(liveness_score), 4),
+            "emotion": str(emotion),
         }
 
     def get_daily_report(self, target_date: date | None = None) -> list[dict]:
         d = target_date or date.today()
         start = datetime.combine(d, datetime.min.time())
         end = datetime.combine(d, datetime.max.time())
-        late_time = datetime.strptime(LATE_THRESHOLD, "%H:%M").time()
+        runtime_late_threshold = get_runtime_settings()["late_threshold"]
+        late_time = datetime.strptime(runtime_late_threshold, "%H:%M").time()
 
         logs = (
             self.db.query(AttendanceLog)

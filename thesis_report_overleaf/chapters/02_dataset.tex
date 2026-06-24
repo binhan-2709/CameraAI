@@ -1,0 +1,84 @@
+\chapter{Dataset}
+
+\section{Face Recognition Enrollment Dataset}
+For the face verification task, a custom face enrollment database is constructed. The registration of employees is performed directly through the administration dashboard or captured using the system's live camera feed. Each employee is registered with a minimum of three face images to capture moderate intra-class variance. 
+
+To improve the robustness of the face recognition database and prevent overfitting on a single capture, we implement an automated data augmentation step during the enrollment process. For each uploaded image, multiple augmented variations are generated using the \texttt{Albumentations} library \cite{albumentations}. The augmentation pipeline is configured with specific parameters to simulate realistic variations in lighting and pose:
+\begin{itemize}
+    \item \textbf{Geometric Transformations:} 
+    \begin{itemize}
+        \item \textit{Horizontal Flip:} Applied with a probability $p = 0.5$ to simulate employees approaching the camera from different directions.
+        \item \textit{Shift-Scale-Rotate:} Random rotations within the limit $[-10^\circ, 10^\circ]$, scale adjustments within $[-10\%, 10\%]$, and translations within $[-5\%, 5\%]$ to handle variable distances and head tilts.
+    \end{itemize}
+    \item \textbf{Photometric Distortions:} 
+    \begin{itemize}
+        \item \textit{Random Brightness and Contrast:} Brightness adjustments are bounded in the range $[-10\%, 20\%]$, and contrast adjustments are bounded within $[-10\%, 20\%]$ to simulate fluorescent office lights, shadows from windows, or dim corridor settings.
+        \item \textit{Hue-Saturation-Value (HSV) Shift:} Shifts hue by $\pm 10$ and saturation by $\pm 15$ to handle camera white-balance inconsistencies.
+    \end{itemize}
+    \item \textbf{Noise Injection:} 
+    \begin{itemize}
+        \item \textit{Gaussian Noise:} Added with a variance limit in the range $[10.0, 50.0]$ and probability $p = 0.3$ to simulate low-light sensor noise.
+    \end{itemize}
+\end{itemize}
+This offline augmentation process increases the initial 3-image registration to a synthesized database of 15 reference embeddings per employee. This guarantees that matching remains stable even when the employee is standing at a slight angle or under poor lighting.
+
+\section{Facial Emotion Recognition Datasets}
+To train a lightweight facial expression recognition model, we leverage multiple public datasets. Combining these datasets allows the model to learn both noisy web-scraped representations and clean laboratory expressions. The datasets used are:
+\begin{enumerate}
+    \item \textbf{FER-2013:} A large-scale public dataset containing 35,887 grayscale images of size $48 \times 48$ pixels. The images are automatically scraped from Google search, leading to a high degree of label noise, occlusion, and off-center face crops. The dataset covers 7 basic emotions: anger, disgust, fear, happiness, sadness, surprise, and neutral.
+    \item \textbf{FERPlus (FER+):} An upgrade of the FER-2013 dataset. It was relabeled by 10 independent crowdsourcing annotators per image. Instead of hard, single-label classifications, FERPlus provides a soft distribution of votes across 8 classes, adding \textit{contempt} as the eighth category. This represents human facial expression ambiguity more effectively. The soft-label probability for a class $c$ is computed as:
+    \begin{equation}
+        P(c) = \frac{n_c}{\sum_{k=1}^8 n_k}
+    \end{equation}
+    where $n_c$ is the number of votes received by class $c$ out of 10.
+    \item \textbf{CK+ (Extended Cohn-Kanade):} A laboratory dataset containing 593 facial expression sequences from 123 subjects. The images have high resolution and extremely clean annotations. We extract the peak emotion frame (the last frame in each sequence) and the neutral frame (the first frame) to construct a subset of 327 highly reliable facial expression images.
+    \item \textbf{JAFFE:} The Japanese Female Facial Expression dataset. It contains 213 grayscale images of 10 Japanese female models posing for 7 basic expressions. This is used as an out-of-domain test set to evaluate model performance on Asian facial structures.
+    \item \textbf{AffectNet:} A very large-scale dataset collected from the Internet using search engines. It contains over 1 million images with manual annotations for emotion classes. We describe AffectNet as the theoretical foundation for web-scraped expressions in the wild, using a subset to validate out-of-domain performance.
+\end{enumerate}
+
+\begin{table}[H]
+\centering
+\caption{Emotion datasets distribution and characteristics.}
+\label{tab:emotion-datasets}
+\begin{tabular}{lccccl}
+\toprule
+\textbf{Dataset} & \textbf{Samples} & \textbf{Resolution} & \textbf{Classes} & \textbf{Style} & \textbf{Usage} \\
+\midrule
+FER-2013 & 35,887 & $48 \times 48$ & 7 & Web-scraped / noisy & Training \\
+FERPlus & 35,887 & $48 \times 48$ & 8 & Relabeled / soft distribution & Training \\
+CK+ & 593 & Variable & 8 & Laboratory / clean & Validation \\
+JAFFE & 213 & $256 \times 256$ & 7 & Laboratory / Asian models & Validation \\
+AffectNet & 440,000 & Variable & 8 & Wild / web-scraped & Reference \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Data Preprocessing and Normalization}
+Before passing face crops into the respective neural network architectures, the raw images must undergo consistent preprocessing pipelines.
+
+\subsection{Preprocessing}
+The preprocessing workflow varies slightly between the face recognition model and the emotion classification model:
+\begin{itemize}
+    \item \textbf{Resolution Normalization:}
+    \begin{itemize}
+        \item For \textit{InceptionResnetV1}, detected face crops are resized to $160 \times 160$ pixels using bilinear interpolation.
+        \item For the \textit{Mini-Xception} emotion model, face crops are converted to grayscale and resized to $64 \times 64$ pixels.
+    \end{itemize}
+    \item \textbf{Pixel Intensity Scaling:} Pixel intensities are rescaled from the integer range $[0, 255]$ to the floating-point range $[0, 1]$ via division by 255.0.
+    \item \textbf{L2 Normalization:} For face embeddings, the output 512-dimensional vector is normalized to unit length ($L_2$ norm = 1.0) so that comparison can be efficiently calculated using cosine similarity.
+\end{itemize}
+
+\subsection{Mathematical Formulations}
+For face embeddings, a raw 512-dimensional output vector $v \in \mathbb{R}^{512}$ is normalized using the $L_2$-norm:
+\begin{equation}
+    v_{\text{norm}} = \frac{v}{\|v\|_2} = \frac{v}{\sqrt{\sum_{i=1}^{512} v_i^2}}
+\end{equation}
+For grayscale conversion in the emotion model, the RGB pixel values are mapped to a single intensity channel $Y$ using the standard Luma formula:
+\begin{equation}
+    Y = 0.299 \cdot R + 0.587 \cdot G + 0.114 \cdot B
+\end{equation}
+For InceptionResnetV1, input normalization is applied using ImageNet means ($\mu$) and standard deviations ($\sigma$) for each color channel:
+\begin{equation}
+    x_{\text{std}} = \frac{(x / 255.0) - \mu}{\sigma}
+\end{equation}
+where $\mu = [0.485, 0.456, 0.406]$ and $\sigma = [0.229, 0.224, 0.225]$. This ensures that inputs to the pretrained face recognition backbone have a standardized distribution.

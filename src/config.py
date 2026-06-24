@@ -62,7 +62,7 @@ class Settings:
     camera_fps: int = _env_int("CAMERA_FPS", 30)
 
     face_backend: str = _env_str("FACE_BACKEND", "auto")
-    face_threshold: float = _env_float("FACE_THRESHOLD", 0.5)
+    face_threshold: float = _env_float("FACE_THRESHOLD", 0.6)
     liveness_threshold: float = _env_float("LIVENESS_THRESHOLD", 0.8)
     detection_size: int = _env_int("DETECTION_SIZE", 640)
 
@@ -98,3 +98,41 @@ FACE_DB_PATH = str(settings.face_db_path)
 DATA_RAW_DIR = str(settings.data_raw_dir)
 DATA_AUG_DIR = str(settings.data_aug_dir)
 LOG_DIR = str(settings.log_dir)
+
+
+import json
+
+def get_runtime_settings() -> dict:
+    default_path = BASE_DIR / "data" / "settings.json"
+    default_path.parent.mkdir(parents=True, exist_ok=True)
+    defaults = {
+        "late_threshold": LATE_THRESHOLD,
+        "cooldown_minutes": COOLDOWN_MINUTES,
+        "face_threshold": FACE_THRESHOLD,
+    }
+    if default_path.exists():
+        try:
+            with open(default_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # Ensure type compatibility
+                if "cooldown_minutes" in data:
+                    data["cooldown_minutes"] = int(data["cooldown_minutes"])
+                if "face_threshold" in data:
+                    data["face_threshold"] = float(data["face_threshold"])
+                return {**defaults, **data}
+        except Exception:
+            pass
+    return defaults
+
+
+def save_runtime_settings(settings_dict: dict) -> None:
+    default_path = BASE_DIR / "data" / "settings.json"
+    default_path.parent.mkdir(parents=True, exist_ok=True)
+    # Validate types before saving
+    clean_dict = {
+        "late_threshold": str(settings_dict.get("late_threshold", LATE_THRESHOLD)),
+        "cooldown_minutes": int(settings_dict.get("cooldown_minutes", COOLDOWN_MINUTES)),
+        "face_threshold": float(settings_dict.get("face_threshold", FACE_THRESHOLD)),
+    }
+    with open(default_path, "w", encoding="utf-8") as f:
+        json.dump(clean_dict, f, indent=2)

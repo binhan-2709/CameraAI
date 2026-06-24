@@ -1,0 +1,141 @@
+\chapter{Model Architecture}
+
+\section{Face Detection Models}
+Face detection is the initial stage in our attendance pipeline. To ensure the system operates reliably across different hardware environments, we implement a multi-model fallback strategy. The detection layer supports three face detection architectures:
+
+\begin{enumerate}
+    \item \textbf{YOLOv8-face:} A state-of-the-art anchor-free object detector specialized for face detection and landmark localization. Employs a backbone featuring C2f (CSP Bottleneck with 2 convolutions) blocks for multi-scale feature extraction. YOLOv8-face is highly robust against facial occlusions, varied head poses, and diverse lighting conditions. It is the primary face detector in our system.
+    \item \textbf{MTCNN (Multi-task Cascaded Convolutional Networks):} A three-stage cascaded deep learning framework containing:
+    \begin{itemize}
+        \item \textit{Proposal Network (P-Net):} A fully convolutional network that generates candidate bounding boxes.
+        \item \textit{Refinement Network (R-Net):} A CNN that rejects false candidates and calibrates bounding boxes.
+        \item \textit{Output Network (O-Net):} A more complex CNN that performs final refinement and extracts five facial landmarks (eyes, nose, and mouth corners).
+    \end{itemize}
+    MTCNN serves as the primary fallback when YOLOv8-face dependencies are unavailable.
+    \item \textbf{Haar Cascade:} OpenCV's Viola-Jones face detector \cite{viola2001rapid}. It utilizes Haar-like features and a cascade of AdaBoost classifiers. It is highly lightweight and runs on extremely low-power CPUs without GPU or deep learning libraries (e.g., PyTorch), serving as the final fallback for development environments.
+\end{enumerate}
+
+This defensive fallback configuration allows the pipeline to degrade gracefully if model files or PyTorch libraries are missing, guaranteeing continuous uptime in production.
+
+\subsection{YOLOv8-face Architecture Details}
+YOLOv8-face represents the state-of-the-art in face detection. Unlike classical anchor-based detectors, it is an anchor-free model, directly predicting the center offset and dimensions of bounding boxes. Its backbone is based on a modified CSPDarknet53, which incorporates the C2f module to merge high-resolution spatial details with low-resolution semantic features. 
+
+The detection head is split into two branches:
+\begin{itemize}
+    \item \textbf{Bounding Box Regression Branch:} Predicts the box coordinates $[x, y, w, h]$ and regress the five key facial landmarks: left eye, right eye, nose tip, left mouth corner, and right mouth corner. Bounding box coordinates are optimized using Complete Intersection over Union (CIoU) loss.
+    \item \textbf{Classification Branch:} Predicts the probability of a face presence in the candidate region using Binary Cross-Entropy (BCE) loss.
+\end{itemize}
+The landmark predictions allow the system to perform affine transformations on the face crops, aligning the eyes horizontally before embedding extraction, which increases face recognition accuracy.
+
+\subsection{MTCNN Cascade Details}
+MTCNN operates in three sequential convolutional stages to optimize speed and accuracy:
+\begin{enumerate}
+    \item \textbf{P-Net ($12\times12$ input):} A light, fully-convolutional network that scans the input image pyramid to generate candidate windows. Boundary box regression vectors are used to calibrate candidates, followed by Non-Maximum Suppression (NMS) with a threshold of 0.70 to merge overlapping regions.
+    \item \textbf{R-Net ($24\times24$ input):} Candidate patches from P-Net are fed into R-Net, which uses a fully-connected layer to reject false alarms. A second NMS step (threshold 0.70) is applied.
+    \item \textbf{O-Net ($48\times48$ input):} The final stage identifies face patches in detail, outputting the bounding box coordinates, a face probability score, and the coordinates of five landmarks. Overlapping regions are merged using a strict NMS threshold of 0.60.
+\end{enumerate}
+
+\subsection{Haar Cascade (Viola-Jones) Concept}
+Haar Cascade uses Haar-like features (rectangular features that compute intensity differences between adjacent regions). To compute these features in constant time $O(1)$, an \textbf{Integral Image} (or summed-area table) is created. 
+The integral image $II(x, y)$ contains the sum of pixel intensities above and to the left of $(x, y)$:
+\begin{equation}
+    II(x, y) = \sum_{x' \le x, y' \le y} I(x', y')
+\end{equation}
+AdaBoost is used to select the most discriminative features and construct a cascade of classifiers. When checking a region, early cascade stages quickly reject background patches, allowing the detector to run fast on low-power CPUs. However, it is sensitive to head rotation, shadows, and variations in skin tone.
+
+\section{Face Recognition Model}
+Once a face bounding box is detected, it is cropped and passed to the face recognition module to extract biometric features.
+
+\subsection{InceptionResnetV1 (FaceNet)}
+We utilize the \textit{InceptionResnetV1} architecture, trained using a Triplet Loss function to output 512-dimensional face embeddings \cite{schroff2015facenet}. The network combines the multi-scale feature representation of Inception blocks with the optimization stability of residual connections (skip connections). The residual path prevents gradient vanishing during deep backpropagation, allowing the model to learn fine-grained facial identity features.
+
+\subsection{Embedding Verification and Cosine Similarity}
+Let $A \in \mathbb{R}^{512}$ be the reference embedding stored in the database, and $B \in \mathbb{R}^{512}$ be the query embedding extracted from the live camera frame. The similarity between the two face representations is calculated using the Cosine Similarity:
+\begin{equation}
+    \text{Similarity}(A, B) = \frac{A \cdot B}{\|A\|_2 \|B\|_2}
+\end{equation}
+Since all embeddings are $L_2$ normalized to unit length during preprocessing ($\|A\|_2 = \|B\|_2 = 1.0$), the cosine similarity simplifies directly to the dot product:
+\begin{equation}
+    \text{Similarity}(A, B) = A \cdot B = \sum_{i=1}^{512} a_i b_i
+\end{equation}
+A match is declared if the similarity score exceeds a predefined threshold $\theta_{\text{verify}}$, which is calibrated to minimize false registrations.
+
+\subsection{Triplet Loss Optimization}
+The InceptionResnetV1 model is optimized using Triplet Loss, which maps face images directly into a compact Euclidean space where distances correspond to facial similarity. The training is conducted using triplets:
+\begin{itemize}
+    \item \textbf{Anchor Image ($x^a$):} Image of a specific person.
+    \item \textbf{Positive Image ($x^p$):} Another image of the same person.
+    \item \textbf{Negative Image ($x^n$):} Image of a different person.
+\end{itemize}
+The triplet loss function minimizes the distance between the anchor and the positive image, while maximizing the distance between the anchor and the negative image by a margin $\alpha$:
+\begin{equation}
+    \mathcal{L} = \sum_{i=1}^N \max\left(0, \|f(x_i^a) - f(x_i^p)\|_2^2 - \|f(x_i^a) - f(x_i^n)\|_2^2 + \alpha\right)
+\end{equation}
+where $f(x)$ represents the 512-dimensional embedding projected by the network.
+
+\section{Facial Expression Recognition Model}
+To implement emotion-gated check-in (requiring employees to smile to log attendance), we deploy a lightweight Convolutional Neural Network (CNN) model based on the \textit{Mini-Xception} architecture.
+
+\subsection{Mini-Xception Architecture}
+Mini-Xception is a compact neural network inspired by the Google Xception design. Standard convolutional layers are replaced with \textbf{Depthwise Separable Convolutions} to minimize parameter count and floating-point operations.
+
+A depthwise separable convolution divides a standard convolution into two separate steps:
+\begin{itemize}
+    \item \textbf{Depthwise Convolution:} Applies a single spatial filter per input channel.
+    \item \textbf{Pointwise Convolution:} Applies a $1 \times 1$ convolution to project the output channels into a new dimension.
+\end{itemize}
+The computational complexity comparison is:
+\begin{itemize}
+    \item Standard Convolution:
+    \begin{equation}
+        C_{\text{std}} = H_k \cdot W_k \cdot C_{\text{in}} \cdot C_{\text{out}} \cdot H_{\text{out}} \cdot W_{\text{out}}
+    \end{equation}
+    \item Depthwise Separable Convolution:
+    \begin{equation}
+        C_{\text{sep}} = (H_k \cdot W_k \cdot C_{\text{in}} \cdot H_{\text{out}} \cdot W_{\text{out}}) + (1 \cdot 1 \cdot C_{\text{in}} \cdot C_{\text{out}} \cdot H_{\text{out}} \cdot W_{\text{out}})
+    \end{equation}
+\end{itemize}
+The reduction ratio is:
+\begin{equation}
+    \text{Ratio} = \frac{C_{\text{sep}}}{C_{\text{std}}} = \frac{1}{C_{\text{out}}} + \frac{1}{H_k \cdot W_k}
+\end{equation}
+For standard $3 \times 3$ kernels ($H_k = W_k = 3$), this ratio is approximately:
+\begin{equation}
+    \text{Ratio} \approx \frac{1}{9} + \frac{1}{C_{\text{out}}}
+\end{equation}
+which represents a saving of ~89\% in floating-point operations.
+
+Additionally, the architecture utilizes residual connections, Batch Normalization, and rectified linear unit (ReLU) activations. Rather than using large, fully-connected (dense) layers at the output, the network uses \textbf{Global Average Pooling (GAP)} immediately before the final Softmax layer. This reduces parameters significantly, resulting in a model file size under 5MB.
+
+\begin{table}[H]
+\centering
+\caption{Mini-Xception network layers configuration.}
+\label{tab:mini-xception-layers}
+\begin{tabular}{llcc}
+\toprule
+\textbf{Layer Type} & \textbf{Specification / Kernel} & \textbf{Input Shape} & \textbf{Output Channels} \\
+\midrule
+Input & Gray Scale Image & $1 \times 64 \times 64$ & 1 \\
+Conv2d & $3 \times 3$, padding=1 & $1 \times 64 \times 64$ & 8 \\
+BatchNorm + ReLU & -- & $8 \times 64 \times 64$ & 8 \\
+Conv2d & $3 \times 3$, padding=1 & $8 \times 64 \times 64$ & 8 \\
+BatchNorm + ReLU & -- & $8 \times 64 \times 64$ & 8 \\
+\midrule
+\textbf{Residual Block 1} & 2 $\times$ Depthwise SepConv & $8 \times 64 \times 64$ & 16 \\
+Max Pooling & $2 \times 2$, stride=2 & $16 \times 64 \times 64$ & 16 \\
+\midrule
+\textbf{Residual Block 2} & 2 $\times$ Depthwise SepConv & $16 \times 32 \times 32$ & 32 \\
+Max Pooling & $2 \times 2$, stride=2 & $32 \times 32 \times 32$ & 32 \\
+\midrule
+\textbf{Residual Block 3} & 2 $\times$ Depthwise SepConv & $32 \times 16 \times 16$ & 64 \\
+Max Pooling & $2 \times 2$, stride=2 & $64 \times 16 \times 16$ & 64 \\
+\midrule
+\textbf{Residual Block 4} & 2 $\times$ Depthwise SepConv & $64 \times 8 \times 8$ & 128 \\
+Max Pooling & $2 \times 2$, stride=2 & $128 \times 8 \times 8$ & 128 \\
+\midrule
+Global Avg Pool & Average spatial dimension & $128 \times 4 \times 4$ & 128 \\
+Flatten / Linear & Dense projection & 128 & 8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+This compact architecture is exported as an ONNX model, allowing OpenCV DNN to load and execute inference on CPUs in under 3 milliseconds per face, which is critical for real-time video feeds.

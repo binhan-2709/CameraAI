@@ -1,0 +1,55 @@
+\chapter{Introduction}
+
+\section{Abstract}
+This thesis presents the design, implementation, and empirical evaluation of a real-time Camera AI Attendance System using deep learning-based face recognition. The primary objective is to address the operational and security weaknesses of traditional attendance methods, such as paper sheets, manual signatures, and proxy-prone magnetic cards. The proposed system combines a multi-model face detection layer (supporting YOLOv8-face, MTCNN, and Haar Cascade fallbacks), a face verification module (InceptionResnetV1), and a lightweight facial expression recognition model (Mini-Xception) for emotion-gated interactions. To secure the check-in process against presentation attacks, we implement a rule-based 2D anti-spoofing mechanism utilizing Laplacian texture variance, HSV skin-color filtering, and Canny margin bezel checks. Additionally, a motion-waving gesture check-out module based on temporal frame difference is introduced to automate check-out events and filter out passive background pedestrians. The vision pipeline is integrated with a high-performance, asynchronous FastAPI backend and a web dashboard displaying real-time events. Real-time testing on an Intel Core i5 CPU demonstrates that the system achieves high verification accuracy at an operating threshold of $\theta_{\text{verify}} = 0.65$ and runs at a practical rate of 15--20 FPS (maximizing at 25.2 FPS with ROI-based tracking), demonstrating the viability of low-cost edge AI deployments.
+
+\noindent\textbf{Keywords:} face recognition, attendance automation, Mini-Xception, FastAPI, anti-spoofing, real-time pipeline.
+
+\section{Context and Motivation}
+Attendance logging is a routine yet critical administrative task in modern organizations, including offices, universities, factories, and research facilities. Historically, organizations have relied on manual methods, such as paper sheets, signature books, and Excel logs, which are slow, error-prone, and require significant administrative labor. To address these issues, card-based systems (e.g., RFID, magnetic stripe cards) and barcode-based ID cards were widely adopted. While these methods digitalize the logs, they fail to prevent the phenomenon of "buddy punching" or proxy attendance, where employees swap cards to check in for absent colleagues. This practice leads to financial losses, inaccurate productivity metrics, and security vulnerabilities.
+
+Biometric technologies, such as fingerprint scanners and iris recognition, offer a more secure alternative. However, fingerprint sensors require direct physical contact (which accelerates wear and tear and poses sanitation issues), and iris scanners are expensive and require active user cooperation at close range. In this context, camera-based Computer Vision (CV) has emerged as an ideal, non-contact biometric solution. Standard surveillance or web cameras can capture rich visual information from a distance, allowing deep learning models to automatically verify identities without requiring physical interaction or specialized hardware.
+
+The motivation of this project is to develop and evaluate a complete, end-to-end Camera AI Attendance System during an internship at Vinorsoft. The system is designed to run efficiently on standard CPU-based edge hardware. Rather than treating face recognition as an isolated classification task, this project integrates computer vision models into a complete software architecture. Detections and embeddings are combined with business rules, persistent SQLite databases, and a real-time Web dashboard. This engineering approach bridges the gap between academic AI models and real-world software applications, providing an automated, contact-free check-in and check-out system.
+
+\section{Project Objective}
+The primary objective of this project is to build a functional, real-time camera-based attendance prototype that is reliable, secure, and easy to manage. To achieve this, the system incorporates the following objectives:
+\begin{enumerate}
+    \item \textbf{Robust Face Verification:} Implement a highly accurate face detection and recognition pipeline using open-source deep learning architectures (YOLOv8-face and InceptionResnetV1) capable of matching employees against a registered database using cosine similarity.
+    \item \textbf{Liveness Detection:} Design a lightweight, real-time 2D anti-spoofing filter that detects screen replay or paper print attacks without introducing high computational latency.
+    \item \textbf{Behavioral Interaction Gates:} Implement emotion-gated check-in (requiring a smiling face to register attendance) and hand-waving gesture check-out to verify active employee presence and distinguish checking-out individuals from passive passers-by.
+    \item \textbf{Production-Grade Software Integration:} Wrap the vision pipeline in a FastAPI web service, using asynchronous WebSockets for live video annotation and logging, and construct a web dashboard for administrative CRUD operations and reports.
+\end{enumerate}
+
+\section{Desired Outcomes}
+The project aims to achieve the following tangible outcomes:
+\begin{itemize}
+    \item A fully integrated software prototype containing the camera capture, backend server, database, and frontend dashboard.
+    \item An operational real-time processing rate of at least 15 frames per second (FPS) on standard dual-core CPU machines.
+    \item A robust verification accuracy with a low False Acceptance Rate (FAR) under controlled indoor lighting conditions.
+    \item A reliable attendance state engine that correctly logs check-in (smile), check-out (wave), late arrivals, and cooldown periods.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=1.4cm,
+  block/.style={rectangle, rounded corners, draw=usthblue, fill=softblue, thick, minimum width=3.2cm, minimum height=1.0cm, align=center},
+  arrow/.style={-{Latex[length=3mm]}, thick}
+]
+\node[block] (camera) {Camera or\\Uploaded Images};
+\node[block, right=of camera] (ai) {Face Detection\\and Embeddings};
+\node[block, right=of ai] (rec) {Recognition\\Database};
+\node[block, below=of rec] (rules) {Attendance\\Business Rules};
+\node[block, left=of rules] (api) {FastAPI\\Backend};
+\node[block, left=of api] (ui) {Web Dashboard\\and Reports};
+\draw[arrow] (camera) -- (ai);
+\draw[arrow] (ai) -- (rec);
+\draw[arrow] (rec) -- (rules);
+\draw[arrow] (rules) -- (api);
+\draw[arrow] (api) -- (ui);
+\draw[arrow] (ui.north) to[bend left=15] node[above, font=\small]{registration and settings} (api.north);
+\end{tikzpicture}
+\caption{High-level view of the Camera AI attendance workflow.}
+\label{fig:high-level-workflow}
+\end{figure}

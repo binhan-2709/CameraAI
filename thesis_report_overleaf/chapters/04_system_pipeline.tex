@@ -1,0 +1,136 @@
+\chapter{System Pipeline}
+
+\section{Threaded Frame Acquisition}
+To ensure low latency and prevent frame-dropping, the video capture pipeline runs on a dedicated thread. Standard single-threaded acquisition blocks the main loop while waiting for the camera sensor to return a frame, which limits performance. Our system separates frame retrieval from processing:
+\begin{itemize}
+    \item \textbf{Acquisition Thread:} Runs an infinite loop using Python's \texttt{threading.Thread} with a daemon configuration. It continuously retrieves frames from a USB webcam or IP camera via OpenCV's \texttt{cv2.VideoCapture} and pushes them to a thread-safe shared queue (\texttt{queue.Queue}) with a maximum capacity of 5.
+    \item \textbf{Processing Thread:} The main application thread retrieves the latest frame from the queue, processes it, and drops older frames if the processing queue falls behind.
+\end{itemize}
+This multi-threaded architecture allows the system to capture video at the sensor's maximum frame rate (e.g., 30 FPS) while running inference asynchronously on a separate thread.
+
+For client communication, frames processed by the backend are compressed into JPEG format using:
+\begin{equation}
+    \text{Bytes}_{\text{jpg}} = \text{cv2.imencode('.jpg', frame, [cv2.IMWRITE\_JPEG\_QUALITY, 80])}
+\end{equation}
+and then streamed to the web dashboard as binary packets via WebSockets, reducing network bandwidth requirements while maintaining visual clarity.
+
+\section{ROI-Based Face Tracking}
+Running deep learning face detection models (such as YOLOv8-face or MTCNN) on every frame is computationally expensive on edge CPUs. To achieve real-time performance, we implement a lightweight Region of Interest (ROI) face tracking pipeline.
+
+When a face is initially detected by the deep learning model:
+\begin{enumerate}
+    \item The system extracts a grayscale face template $T$ of size $w \times h$ from the detected bounding box.
+    \item For the next $N_{\text{track}} = 15$ frames, instead of running the CNN face detector, the system searches for the template in a local search area $S$ in the next frame. The search area is created by expanding the previous bounding box margins by 20\% in all directions to accommodate head movements.
+    \item The tracking is performed using OpenCV's template matching via normalized cross-correlation:
+    \begin{equation}
+        R(x, y) = \frac{\sum_{x'=0}^{w-1} \sum_{y'=0}^{h-1} \left( T(x', y') \cdot S(x+x', y+y') \right)}{\sqrt{\sum_{x'=0}^{w-1} \sum_{y'=0}^{h-1} T(x', y')^2 \cdot \sum_{x'=0}^{w-1} \sum_{y'=0}^{h-1} S(x+x', y+y')^2}}
+    \end{equation}
+    \item The coordinate $(x_{\text{peak}}, y_{\text{peak}})$ corresponding to the maximum correlation coefficient $R_{\text{max}}$ is designated as the new face center.
+\end{enumerate}
+If $R_{\text{max}} \ge 0.70$, the tracker successfully updates the face location. If $R_{\text{max}} < 0.70$ (indicating significant face deformation, occlusion, or rapid movement) or the tracking frame limit ($N_{\text{track}}$) is reached, the system triggers a full CNN-based re-detection in the next frame. This hybrid pipeline reduces CPU face-detection overhead by 90\%, boosting performance.
+
+\section{Anti-Spoofing and Liveness Detection}
+To prevent simple presentation attacks (such as holding up a printed photo or playing a video on a mobile screen), we implement a rule-based 2D liveness detection filter. The algorithm combines multiple criteria and requires no deep-learning overhead:
+
+\begin{enumerate}
+    \item \textbf{Grayscale Contrast Check:} Grayscale standard deviation is calculated. Emissive screens produce high-contrast, sharp highlights, while paper prints have flat, low-contrast ranges:
+    \begin{equation}
+        \text{Contrast} = \sqrt{\frac{1}{M \cdot N} \sum_{i=1}^M \sum_{j=1}^N \left( I(i, j) - \bar{I} \right)^2}
+    \end{equation}
+    where $I(i, j)$ is the pixel intensity and $\bar{I}$ is the mean intensity.
+    \item \textbf{Texture Frequency Analysis:} The face crop is resized to a fixed size of $120 \times 120$ pixels to ensure distance-invariant frequency checks. The Laplacian operator represents the second spatial derivative of the image:
+    \begin{equation}
+        L(x, y) = \nabla^2 I = \frac{\partial^2 I}{\partial x^2} + \frac{\partial^2 I}{\partial y^2}
+    \end{equation}
+    In discrete form, it is calculated by convolving the image with the kernel:
+    \begin{equation}
+        K = \begin{bmatrix} 0 & 1 & 0 \\ 1 & -4 & 1 \\ 0 & 1 & 0 \end{bmatrix}
+    \end{equation}
+    The texture variance is calculated as:
+    \begin{equation}
+        \text{Var}_{\text{lap}} = \text{Var}(L(x, y))
+    \end{equation}
+    A band-pass filter is applied:
+    \begin{itemize}
+        \item $\text{Var}_{\text{lap}} < 30.0$: Face is too blurry (indicates low-resolution print or camera defocus) $\rightarrow$ score decays.
+        \item $\text{Var}_{\text{lap}} > 350.0$: Face is excessively sharp (indicates screen grid moir\'{e} patterns) $\rightarrow$ score decays:
+        \begin{equation}
+            \text{Score}_{\text{lap}} = \max\left(0.1, 1.0 - \frac{\text{Var}_{\text{lap}} - 350.0}{350.0}\right)
+        \end{equation}
+        \item $30.0 \le \text{Var}_{\text{lap}} \le 350.0$: Natural skin frequency range $\rightarrow$ $\text{Score}_{\text{lap}} = 1.0$.
+    \end{itemize}
+    \item \textbf{Color Distribution Check:} The face crop is converted to the HSV color space. The ratio of pixels falling within the typical human skin tone range ($H \in [0, 20] \cup [165, 180]$) is calculated:
+    \begin{equation}
+        \text{SkinRatio} = \frac{\text{Count}_{\text{skin\_pixels}}}{\text{Count}_{\text{total\_pixels}}}
+    \end{equation}
+    If $\text{SkinRatio} \ge 0.15 \rightarrow \text{Score}_{\text{skin}} = 1.0$; if $\text{SkinRatio} \in [0.05, 0.15) \rightarrow \text{Score}_{\text{skin}} = 0.4$; otherwise $0.0$.
+    \item \textbf{Screen Glare Detection:} High-brightness spots ($V > 220$) caused by emissive screen backlight are identified. If the glare ratio exceeds 6\% of the face area, a heavy penalty is applied.
+    \item \textbf{Bezel and Border Detection:} When a mobile phone or paper sheet is held up, straight edges parallel to the face bounding box are often present in the margins. The system expands the face bounding box by 35\% in all directions. It applies Gaussian blur followed by Canny edge detection. Column-wise and row-wise edge projection peaks are calculated:
+    \begin{equation}
+        P_{\text{col}}(x) = \sum_{y} E(x, y), \quad P_{\text{row}}(y) = \sum_{x} E(x, y)
+    \end{equation}
+    where $E(x, y) \in \{0, 1\}$ represents the binary edge map. If vertical or horizontal projections show strong parallel peaks in the expanded margins, a phone bezel is declared.
+\end{enumerate}
+The final liveness score is calculated as:
+\begin{equation}
+    \text{Liveness} = 0.70 \cdot \text{Score}_{\text{lap}} + 0.30 \cdot \text{Score}_{\text{skin}}
+\end{equation}
+If the glare ratio exceeds 6\%, the score is scaled by 0.15. If contrast is outside the normal range $[12.0, 42.0]$, a contrast penalty is applied. If a bezel is detected, the liveness score is multiplied by 0.05. A face is classified as live if the final score is $\ge 0.50$.
+
+\section{Gesture-Based Check-Out}
+To log check-out events without false triggers from passing employees, the system implements a hand-waving gesture detector.
+
+When a recognized employee is being tracked:
+\begin{enumerate}
+    \item The system defines left and right monitoring ROIs adjacent to the face bounding box:
+    \begin{itemize}
+        \item $\text{ROI}_{\text{left}} = [x_1 - w, y_1, x_1, y_2]$
+        \item $\text{ROI}_{\text{right}} = [x_2, y_1, x_2 + w, y_2]$
+    \end{itemize}
+    \item Frame difference is computed between consecutive frames:
+    \begin{equation}
+        D_t(x, y) = |I_t(x, y) - I_{t-1}(x, y)|
+    \end{equation}
+    \item A threshold of 15 is applied to create a binary motion mask $M_t(x, y) \in \{0, 1\}$:
+    \begin{equation}
+        M_t(x, y) = \begin{cases} 1 & \text{if } D_t(x, y) > 15 \\ 0 & \text{otherwise} \end{cases}
+    \end{equation}
+    The sum of active motion pixels is computed. The maximum motion value between the left and right ROIs is added to a history queue of length 12:
+    \begin{equation}
+        M^{\text{val}}_t = \max\left( \sum_{x, y} M_{t, \text{left}}(x, y), \sum_{x, y} M_{t, \text{right}}(x, y) \right)
+    \end{equation}
+    \item \textbf{Waving Peak Detection:} A hand wave is defined as a series of alternating high and low motion peaks. The system calculates the number of times motion exceeds a high threshold (15\% of face area) separated by drops below a low threshold (4\% of face area).
+\end{enumerate}
+If the system registers at least 3 distinct motion swings in the queue, the employee's state changes to "waving", which triggers a check-out API call.
+
+\section{API and Web Dashboard Architecture}
+The system architecture follows a client-server structure:
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=1.2cm,
+  block/.style={rectangle, rounded corners, draw=usthblue, fill=softblue, thick, minimum width=3.0cm, minimum height=0.9cm, align=center},
+  arrow/.style={-{Latex[length=3mm]}, thick}
+]
+\node[block] (camera) {Webcam Stream\\(Client-side)};
+\node[block, right=of camera] (pipeline) {Real-time Pipeline\\(ROI / Liveness)};
+\node[block, right=of pipeline] (api) {FastAPI Service\\(WebSockets / REST)};
+\node[block, below=of api] (db) {SQLite DB\\(SQLAlchemy)};
+\node[block, left=of db] (dashboard) {Web Dashboard\\(HTML / CSS / JS)};
+\draw[arrow] (camera) -- (pipeline);
+\draw[arrow] (pipeline) -- (api);
+\draw[arrow] (api) -- (db);
+\draw[arrow] (api) -- (dashboard);
+\draw[arrow] (dashboard) -- (camera);
+\end{tikzpicture}
+\caption{System block diagram showing backend and frontend communication.}
+\label{fig:block-diagram}
+\end{figure}
+
+The server uses the \texttt{FastAPI} framework \cite{fastapi} to manage database queries and stream video. Data persistence is handled via a local \texttt{SQLite} database using \texttt{SQLAlchemy} ORM \cite{sqlalchemy}.
+The frontend is a single-page dashboard built using vanilla HTML, CSS, and JS. It connects to the backend via:
+\begin{itemize}
+    \item \textbf{HTTP REST APIs:} Used for configuration, employee management (CRUD), and log exporting.
+    \item \textbf{WebSockets:} Streams annotated camera frames and logs events to the UI.
+\end{itemize}
+The dashboard features a split sidebar. The top section displays green indicators for recent check-in events (smiling faces), and the bottom section displays orange indicators for check-out events (waving gestures). This provides clear visual distinction for administrators.

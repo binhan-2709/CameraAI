@@ -1,0 +1,30 @@
+\chapter{Conclusion}
+
+\section{Conclusion}
+This thesis presented the design, implementation, and empirical evaluation of a real-time Camera AI Attendance System using face recognition. The project demonstrates the feasibility of combining computer vision models with conventional software systems to automate check-in and check-out workflows.
+
+Key achievements of the project include:
+\begin{itemize}
+    \item \textbf{Efficient Multi-Model Pipeline:} We integrated YOLOv8-face and InceptionResnetV1 to achieve reliable face verification. Using an ROI tracking fallback (\texttt{cv2.matchTemplate}) reduced CNN detection overhead by 90\%, boosting system performance from 13.8 FPS to 25.2 FPS on standard CPU hardware.
+    \item \textbf{Lightweight Emotion-Gated Interactions:} A custom \textit{Mini-Xception} model was trained on merged public datasets (FER-2013, FERPlus, CK+, and JAFFE). Calibration techniques (Temperature Scaling and Prior Weight Correction) reduced model bias and improved the F1-scores of rare emotion classes by up to 15\%. This enabled a smiling check-in gate.
+    \item \textbf{Rule-Based Liveness and Gesture Filters:} A rule-based 2D anti-spoofing filter was implemented, combining grayscale contrast, Laplacian frequency bandpass, skin-color ratio, glare, and bezel checks to reject printed or digital photos. A hand-waving gesture check-out module detected motion swings to separate checking-out employees from passers-by.
+    \item \textbf{Production-Ready Integration:} The pipeline was integrated with a FastAPI backend and a web dashboard. The dashboard's split sidebar displays check-in (green) and check-out (orange) events in real-time, providing an intuitive interface for administrators.
+\end{itemize}
+
+\section{Limitations}
+Despite its performance, the system has several limitations:
+\begin{itemize}
+    \item \textbf{Environmental Sensitivity:} Under extremely dim lighting, strong backlight (e.g., facing a window), or severe facial angles ($>45^\circ$), face detection recall and verification accuracy degrade.
+    \item \textbf{2D Spoofing Vulnerabilities:} The rule-based 2D liveness filter detects simple screen replay and paper print attacks. However, it remains vulnerable to high-fidelity 3D masks, silicon face overlays, or video playback on large screens without visible bezels, where Canny edge detection cannot locate borders.
+    \item \textbf{Database Scalability:} For small to medium organizations ($<500$ employees), the database search using cosine similarity is highly efficient. However, scaling to larger corporate databases with thousands of employees would require indexing optimization (such as FAISS) to maintain low latency.
+    \item \textbf{CPU Overload under Multi-Streams:} Although a single camera runs smoothly at 25+ FPS, running multiple concurrent camera streams on the same CPU would saturate resources, leading to processing delays and frame drops.
+\end{itemize}
+
+\section{Future Work}
+To address these limitations, future work will focus on:
+\begin{itemize}
+    \item \textbf{Depth-Based Liveness Detection:} Integrating structured light or time-of-flight (ToF) 3D cameras to perform depth map analysis. This would prevent physical 2D spoofing attacks.
+    \item \textbf{Edge Hardware Acceleration:} Deploying the model pipeline on dedicated edge accelerators, such as NVIDIA Jetson Nano or Google Coral Edge TPU, to run heavy neural network models (e.g., InceptionResnetV1) at 30+ FPS with lower CPU usage.
+    \item \textbf{Multi-Camera Synchronization:} Extending the backend to support distributed camera streams, allowing employees to check in at one entrance and check out at another with synchronized database records.
+    \item \textbf{Advanced Spoofing Models:} Incorporating lightweight deep learning-based liveness networks (e.g., FaceAntiSpoofing) to complement the rule-based filters.
+\end{itemize}
