@@ -9,9 +9,13 @@ env/
 dist/
 build/
 
-# Data & Models (thường quá lớn để commit)
+# Data & Models (too large to commit)
 data/raw/
 data/augmented/
+data/ckplus/
+data/fer2013/
+data/jaffe/
+data/test/
 models/*.pkl
 models/*.onnx
 models/*.pt
@@ -41,3 +45,7 @@ Thumbs.db
 
 # Docker
 .docker/
+
+# LaTeX reports (Supervisor requested to exclude from Git)
+thesis_report_overleaf/
+thesis_report_overleaf.zip
